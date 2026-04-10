@@ -2,8 +2,8 @@ flask
 flask-cors
 flask-sqlalchemy
 psycopg2-binary
-scikit-learn
+scikit-learn==1.6.1
 pandas
-gunicorn
 numpy
+gunicorn
 python-dotenv
