@@ -7,13 +7,61 @@ import { Badge } from "@/components/ui/badge";
 import {
   HeartPulse, Activity, Brain, ShieldCheck, MessageSquare,
   LogOut, ClipboardList, XCircle, AlertTriangle, CheckCircle,
-  ChevronDown, ChevronUp, History, User, Clock, Thermometer,
-  Wind, Heart, AlertCircle,
+  ChevronDown, ChevronUp, History, User, AlertCircle, Loader2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { getUser, signOut } from "@/features/auth/authApi";
+import { getUser, signOut, type User as AuthUser } from "@/features/auth/authApi";
 import { useEffect, useState } from "react";
 
+// ─── Backend API base URL ────────────────────────────────────────────────────
+const API_URL = ((import.meta as unknown) as { env: { VITE_API_URL: string } }).env.VITE_API_URL;
+
+// ─── API helpers ─────────────────────────────────────────────────────────────
+
+/** Fetch triage history for the logged-in user from Flask */
+const fetchHistory = async (token: string): Promise<HistoryEntry[]> => {
+  const res = await fetch(`${API_URL}/history`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error("Failed to fetch history");
+  const data = await res.json();
+  return data.history as HistoryEntry[];
+};
+
+/** Save a new triage result to Flask backend */
+export const saveTriageResult = async (
+  token: string,
+  entry: Omit<HistoryEntry, "timestamp">
+): Promise<void> => {
+  const res = await fetch(`${API_URL}/history`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(entry),
+  });
+  if (!res.ok) throw new Error("Failed to save triage result");
+};
+
+/** Run triage scoring logic on Flask backend */
+export const runTriage = async (
+  token: string,
+  answers: HistoryEntry["answers"]
+): Promise<{ score: number; level: HistoryEntry["level"]; recommendations: string[]; factors: HistoryEntry["factors"] }> => {
+  const res = await fetch(`${API_URL}/triage`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(answers),
+  });
+  if (!res.ok) throw new Error("Triage scoring failed");
+  return res.json();
+};
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 type HistoryEntry = {
   score: number;
   level: "normal" | "moderate" | "critical";
@@ -104,23 +152,70 @@ const AnswerRow = ({ label, value }: { label: string; value: string }) => (
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const user = getUser();
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [entryCount, setEntryCount] = useState<number | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const raw = localStorage.getItem("triage_history");
-    if (raw) {
-      const parsed: HistoryEntry[] = JSON.parse(raw);
-      setHistory([...parsed].reverse());
-      setEntryCount(parsed.length);
-    } else {
-      setEntryCount(0);
-    }
+    const loadUser = async () => {
+      const currentUser = await getUser();
+      setUser(currentUser);
+    };
+
+    loadUser();
   }, []);
 
-  const handleSignOut = () => { signOut(); navigate("/auth"); };
+  useEffect(() => {
+    // ── Fetch history from Flask backend ──────────────────────────────────────
+    // Gets the auth token stored by your authApi after login,
+    // then calls GET /history on your Flask backend.
+    const loadHistory = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Get token saved during login (adjust key name to match your authApi)
+        const token = localStorage.getItem("auth_token");
+
+        if (!token) {
+          // Not logged in — redirect to auth
+          navigate("/auth");
+          return;
+        }
+
+        const data = await fetchHistory(token);
+        const reversed = [...data].reverse();
+        setHistory(reversed);
+        setEntryCount(data.length);
+      } catch (err) {
+        console.error("History fetch failed:", err);
+        setError("Could not load your history. Please try again.");
+        // Fallback: try localStorage in case backend is down
+        const raw = localStorage.getItem("triage_history");
+        if (raw) {
+          const parsed: HistoryEntry[] = JSON.parse(raw);
+          setHistory([...parsed].reverse());
+          setEntryCount(parsed.length);
+        } else {
+          setEntryCount(0);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadHistory();
+  }, [navigate]);
+
+  const handleSignOut = () => {
+    // ── Sign out: clear token + call your authApi ─────────────────────────────
+    localStorage.removeItem("auth_token");
+    signOut();
+    navigate("/auth");
+  };
 
   return (
     <div className="min-h-screen bg-background relative">
@@ -158,7 +253,20 @@ const Dashboard = () => {
 
       <Hero />
 
-      {entryCount !== null && entryCount > 0 && (
+      {/* ── Loading / error state ───────────────────────────────────────────── */}
+      {loading && (
+        <div className="flex justify-center py-8 relative z-10">
+          <Loader2 className="w-6 h-6 animate-spin text-primary" />
+        </div>
+      )}
+
+      {error && !loading && (
+        <div className="flex justify-center pb-4 px-4 relative z-10">
+          <p className="text-sm text-destructive">{error} (showing cached data if available)</p>
+        </div>
+      )}
+
+      {entryCount !== null && entryCount > 0 && !loading && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -221,7 +329,7 @@ const Dashboard = () => {
         </div>
       </ContainerScroll>
 
-      {history.length > 0 && (
+      {history.length > 0 && !loading && (
         <section className="py-16 px-4 relative z-10">
           <div className="container mx-auto max-w-3xl">
             <motion.div
@@ -284,8 +392,6 @@ const Dashboard = () => {
                             className="overflow-hidden"
                           >
                             <div className="px-5 pb-5 border-t border-border/50 pt-4 space-y-5">
-
-                              {/* Answers section */}
                               <div>
                                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
                                   <User className="w-3.5 h-3.5" /> What you answered
@@ -309,7 +415,6 @@ const Dashboard = () => {
                                 </div>
                               </div>
 
-                              {/* Risk factors */}
                               {entry.factors && entry.factors.length > 0 && (
                                 <div>
                                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
@@ -331,7 +436,6 @@ const Dashboard = () => {
                                 </div>
                               )}
 
-                              {/* Recommendations */}
                               {entry.recommendations && entry.recommendations.length > 0 && (
                                 <div>
                                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
@@ -347,7 +451,6 @@ const Dashboard = () => {
                                   </ul>
                                 </div>
                               )}
-
                             </div>
                           </motion.div>
                         )}
