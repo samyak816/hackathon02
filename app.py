@@ -10,8 +10,7 @@ app = Flask(__name__)
 CORS(app)
 
 # --- DATABASE CONFIGURATION ---
-# Neon.tech Postgres connection
-app.config['SQLALCHEMY_DATABASE_URI'] = "postgresql://neondb_owner:npg_fVXkv9HzJh3g@ep-snowy-butterfly-anu5k8mx-pooler.c-6.us-east-1.aws.neon.tech/medicalservices?sslmode=require"
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -28,7 +27,6 @@ with app.app_context():
     db.create_all()
 
 # --- ML MODEL LOADING ---
-# Load LogisticRegression  and TfidfVectorizer [cite: 21]
 try:
     with open('model.pkl', 'rb') as f:
         model = pickle.load(f)
@@ -65,7 +63,6 @@ def predict():
     data = request.get_json()
     user_input = data.get('symptoms', '')
     
-    # Vectorize and classify as 'Critical' or 'Normal' [cite: 1, 21]
     vectorized_text = vectorizer.transform([user_input])
     prediction = model.predict(vectorized_text)[0]
     probabilities = model.predict_proba(vectorized_text)[0]
@@ -76,6 +73,5 @@ def predict():
     })
 
 if __name__ == "__main__":
-    # Use a port provided by Render or default to 5000
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
