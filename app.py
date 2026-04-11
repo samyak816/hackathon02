@@ -35,6 +35,14 @@ try:
 except Exception as e:
     print(f"Model load error: {e}")
 
+# --- DEFAULT ROUTE (FIX FOR 404) ---
+@app.route('/', methods=['GET'])
+def home():
+    return jsonify({
+        "status": "success",
+        "message": "API is running successfully!"
+    }), 200
+
 # --- AUTH ROUTES ---
 @app.route('/signup', methods=['POST'])
 def signup():
