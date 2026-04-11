@@ -14,7 +14,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
 
   // Your Render Backend URL
-  const API_BASE_URL = "https://hackathon02.onrender.com";
+  const API_BASE_URL = " https://hackathon02-1.onrender.com";
 
   // 3. The submit handler, typed for a Form Event
   const handlePredict = async (e: React.FormEvent<HTMLFormElement>) => {
