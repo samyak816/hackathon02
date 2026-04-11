@@ -3,7 +3,7 @@ export interface User {
   name: string;
 }
 
-const API_URL = "http://localhost:5000";
+const API_URL = "https://hackathon02-5pmxe44fw-samyak816s-projects.vercel.app/auth";
 
 /**
  * Checks if a user is currently "logged in" by looking at localStorage.
